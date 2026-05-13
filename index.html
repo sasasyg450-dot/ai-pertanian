@@ -460,45 +460,103 @@
             reader.readAsDataURL(file);
         }
 
-        async function analyzeWithHuggingFace() {
-            const file = elements.fileInput.files[0];
-            if (!file) return;
+       async function analyzeWithHuggingFace() {
+    const file = elements.fileInput.files[0];
 
-            // UI States
-            showLoading(true);
-            elements.resultsCard.style.display = 'block';
-            elements.resultsCard.scrollIntoView({ behavior: 'smooth' });
+    if (!file) {
+        showError('Silakan upload gambar terlebih dahulu');
+        return;
+    }
 
-            try {
-                // Convert file to ArrayBuffer (equivalent to fs.readFileSync)
-                const arrayBuffer = await file.arrayBuffer();
-                const uint8Array = new Uint8Array(arrayBuffer);
+    // Tampilkan loading
+    showLoading(true);
+    elements.resultsCard.style.display = 'block';
+    elements.resultsCard.scrollIntoView({ behavior: 'smooth' });
 
-                // Hugging Face Inference API Call
-                const response = await fetch(`https://api-inference.huggingface.co/models/${HF_MODEL}`, {
-                    method: 'POST',
-                    headers: {
-                        'Authorization': `Bearer ${HF_TOKEN}`,
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({ inputs: uint8Array })
-                });
+    try {
 
-                if (!response.ok) {
-                    const errorText = await response.text();
-                    throw new Error(`API ${response.status}: ${errorText}`);
-                }
-
-                const output = await response.json();
-                displayResults(output);
-
-            } catch (error) {
-                console.error('AI Analysis Error:', error);
-                showError(`Gagal analisa: ${error.message}`);
-            } finally {
-                showLoading(false);
+        // Kirim gambar langsung ke HuggingFace
+        const response = await fetch(
+            `https://api-inference.huggingface.co/models/${HF_MODEL}`,
+            {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${HF_TOKEN}`
+                },
+                body: file
             }
+        );
+
+        // Jika error API
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`API Error: ${errorText}`);
         }
+
+        // Ambil hasil AI
+        const output = await response.json();
+
+        console.log('Hasil AI:', output);
+
+        // Validasi hasil
+        if (!Array.isArray(output)) {
+            throw new Error('Hasil AI tidak valid');
+        }
+
+        // Urutkan hasil terbesar
+        const sortedResults = output
+            .sort((a, b) => b.score - a.score)
+            .slice(0, 5);
+
+        // Ambil hasil terbaik
+        const top = sortedResults[0];
+
+        // Tampilkan nama penyakit
+        elements.diseaseName.textContent = top.label;
+
+        // Confidence
+        const confidence = Math.round(top.score * 100);
+
+        elements.confidenceFill.style.width = `${confidence}%`;
+        elements.confidenceFill.dataset.confidence = confidence;
+
+        // Tampilkan top prediksi
+        elements.topPredictions.innerHTML = `
+            <div style="margin-bottom:15px;font-weight:700;color:#00b894;">
+                Top Prediksi AI
+            </div>
+
+            ${sortedResults.map(pred => `
+                <div class="prediction-item">
+                    <div class="pred-name">${pred.label}</div>
+                    <div class="pred-score">
+                        ${(pred.score * 100).toFixed(1)}%
+                    </div>
+                </div>
+            `).join('')}
+        `;
+
+        // Hilangkan error
+        elements.errorContainer.style.display = 'none';
+
+    } catch (error) {
+
+        console.error('ERROR:', error);
+
+        showError(`
+            Gagal mendeteksi penyakit tanaman.<br><br>
+            Kemungkinan:
+            <br>- Token HuggingFace salah
+            <br>- Model sedang loading
+            <br>- Internet lambat
+        `);
+
+    } finally {
+
+        // Sembunyikan loading
+        showLoading(false);
+    }
+}
 
         function displayResults(output) {
             if (!output || !Array.isArray(output)) {
